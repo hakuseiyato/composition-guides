@@ -1,0 +1,11 @@
+Windows Registry Editor Version 5.00
+
+; 署名なし CEP 拡張の実行を許可する（開発用）。
+; Illustrator 2026 は CEP 12 = CSXS.12。念のため 11 も設定。
+; 適用後は Illustrator を再起動すること。
+
+[HKEY_CURRENT_USER\Software\Adobe\CSXS.12]
+"PlayerDebugMode"="1"
+
+[HKEY_CURRENT_USER\Software\Adobe\CSXS.11]
+"PlayerDebugMode"="1"

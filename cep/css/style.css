@@ -1,0 +1,109 @@
+/* Composition Guides — CEP パネル（Illustrator ダークUI 風） */
+:root {
+  --bg: #323232;
+  --panel: #3a3a3a;
+  --border: #2a2a2a;
+  --text: #d8d8d8;
+  --muted: #9a9a9a;
+  --accent: #2d8cf0;
+  --field: #262626;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  padding: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: "Segoe UI", "Yu Gothic UI", sans-serif;
+  font-size: 12px;
+}
+
+#app {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+  padding: 8px 8px 0;
+}
+
+.panel {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 8px;
+  margin-bottom: 8px;
+}
+
+.panel h2 {
+  margin: 0 0 6px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--muted);
+  text-transform: none;
+  letter-spacing: .02em;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 3px 0;
+  flex-wrap: wrap;
+}
+
+.row label.cb {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  flex: 1 1 auto;
+  cursor: pointer;
+}
+
+.row label { color: var(--text); }
+.row .sub { color: var(--muted); margin-left: 4px; }
+
+input[type="checkbox"] { accent-color: var(--accent); }
+
+select, input[type="number"], input[type="text"] {
+  background: var(--field);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  padding: 2px 4px;
+  font-size: 12px;
+}
+
+input[type="number"] { width: 52px; }
+select { max-width: 130px; }
+
+footer#actions {
+  position: sticky;
+  bottom: 0;
+  display: flex;
+  gap: 8px;
+  padding: 8px 0;
+  background: var(--bg);
+}
+
+button {
+  flex: 1;
+  padding: 7px 10px;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+  cursor: pointer;
+  font-size: 12px;
+}
+
+button.primary { background: var(--accent); color: #fff; border-color: var(--accent); }
+button.secondary { background: var(--panel); color: var(--text); }
+button:hover { filter: brightness(1.1); }
+
+.status {
+  min-height: 16px;
+  padding: 2px 2px 8px;
+  color: var(--muted);
+  font-size: 11px;
+}
+.status.ok { color: #6fcf97; }
+.status.err { color: #eb5757; }

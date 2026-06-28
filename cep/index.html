@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Composition Guides</title>
+  <link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+  <div id="app">
+    <!-- 基準アートボード -->
+    <section class="panel">
+      <h2>基準アートボード</h2>
+      <div class="row">
+        <label for="artboard">対象</label>
+        <select id="artboard"></select>
+      </div>
+    </section>
+
+    <!-- 動的にセクションを差し込む -->
+    <div id="sections"></div>
+
+    <!-- 操作ボタン（固定フッタ） -->
+    <footer id="actions">
+      <button id="btnClear" class="secondary">全消去</button>
+      <button id="btnGenerate" class="primary">生成 / 更新</button>
+    </footer>
+    <div id="status" class="status"></div>
+  </div>
+
+  <script src="js/main.js"></script>
+</body>
+</html>

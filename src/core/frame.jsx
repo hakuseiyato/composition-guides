@@ -7,9 +7,24 @@
 
 CG.frame = {};
 
-// プラットフォーム中立エントリ（generate.jsx から呼ばれる）。IL はアートボード基準。
+// プラットフォーム中立エントリ。IL はアートボード基準。
+// generate.jsx の主経路は下の CG.frame.list()。IL 側ではここは呼ばれない
+// （AE 側は ae/frame.jsx の list から fromBase を呼んでいる）。
 CG.frame.fromBase = function (doc, state) {
     return CG.frame.fromArtboard(doc, state.artboard_index);
+};
+
+// 描画対象フレームの配列を返す（generate.jsx から呼ばれる）。
+// state.artboard_index === -2 で全アートボード、それ以外は従来通り 1 枚。
+CG.frame.list = function (doc, state) {
+    if (state.artboard_index === -2) {
+        var frames = [];
+        for (var i = 0; i < doc.artboards.length; i++) {
+            frames.push(CG.frame.fromArtboard(doc, i));
+        }
+        return frames;
+    }
+    return [CG.frame.fromArtboard(doc, state.artboard_index)];
 };
 
 // ホスト依存処理の中立化（IL は app.redraw）。

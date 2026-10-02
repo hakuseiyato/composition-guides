@@ -11,7 +11,7 @@ CG.PHI_LONG = CG.PHI / (1.0 + CG.PHI);        // ≈ 0.6180339887 (長辺比)
 // 既定設定を返す / Return default settings object
 CG.defaults = function () {
     return {
-        // 基準アートボード index（-1 = アクティブ）
+        // 基準アートボード index（-1 = アクティブ, -2 = 全アートボード）
         artboard_index: -1,
 
         // ----- 構図ガイド / Composition guides -----
@@ -19,20 +19,17 @@ CG.defaults = function () {
         show_golden: false,
         show_diagonal: false,
         show_center: false,
-        show_quad: false,
         show_triangle: false,
         triangle_orientation: "TL_BR",   // 'TL_BR' / 'TR_BL'
         show_golden_section: false,
 
         // ----- 絵画構図 / Painting -----
-        show_division: false,
-        division_axis: "H",              // 'H' / 'V'
-        show_symmetry: false,
-        symmetry_axis: "V",              // 'H' / 'V' / 'BOTH'
 
         // ----- Phase 2: パラメトリック / Parametric -----
-        show_spiral: false,
-        spiral_orientation: "TL",        // 'TL' / 'TR' / 'BL' / 'BR'
+        show_spiral_tl: false,
+        show_spiral_tr: false,
+        show_spiral_bl: false,
+        show_spiral_br: false,
 
         show_horizontal_line: false,
         horizontal_pos: 0.5,             // 0=下端, 1=上端
@@ -72,6 +69,7 @@ CG.defaults = function () {
         perspective_lines: 12,           // 各 VP からの放射本数
         perspective_show_vp_marker: true,
         perspective_show_horizon: true,
+        perspective_live_vp: true,       // AE: VP をヌルレイヤーで調整（IL は無視）
 
         // ----- 枠 / Frame -----
         show_frame: false

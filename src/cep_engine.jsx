@@ -11,6 +11,7 @@ var CG = {};
 
 #include "state.jsx"
 #include "core/frame.jsx"
+#include "core/dedup.jsx"
 #include "core/guidelayer.jsx"
 #include "draw/guides.jsx"
 #include "draw/perspective.jsx"

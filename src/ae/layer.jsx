@@ -156,3 +156,46 @@ CG.layer.addEllipseGuide = function (lyr, cx, cy, rx, ry) {
 CG.layer.addRectGuide = function (lyr, bl, br, tr, tl) {
     return CG.layer.addPolylineGuide(lyr, [bl, br, tr, tl], true);
 };
+
+// --- live VP プリミティブ -----------------------------------------------
+
+// AE バックエンドだけが定義し、共有 draw 側の分岐キーにする。
+CG.layer.perspectiveLive = true;
+
+CG.layer.addExprLineGuide = function (lyr, expr) {
+    var gc = _newGroupContents();
+    var shapeProp = gc.addProperty(_MN.shape);
+    shapeProp.property(_MN.shapePath).expression = expr;
+    _addStroke(gc);
+    return gc;
+};
+
+CG.layer.ensureVP = function (frame, key, mathPt) {
+    return CG.ae.vp.ensure(frame.comp, key, mathPt);
+};
+
+CG.layer.pruneVP = function (frame, keepNames) {
+    CG.ae.vp.prune(frame.comp, keepNames);
+};
+
+CG.layer.clearVP = function (comp) {
+    CG.ae.vp.clearAll(comp);
+};
+
+CG.layer.addRaysLive = function (lyr, nullName, n) {
+    for (var i = 0; i < n; i++) {
+        CG.layer.addExprLineGuide(lyr, CG.ae.vp.rayExpr(nullName, i, n));
+    }
+};
+
+CG.layer.addVPMarkerLive = function (lyr, nullName) {
+    CG.layer.addExprLineGuide(lyr, CG.ae.vp.markerExpr(nullName, 0));
+    CG.layer.addExprLineGuide(lyr, CG.ae.vp.markerExpr(nullName, 1));
+};
+
+CG.layer.addHorizonLive = function (lyr, nameL, nameR) {
+    var expr = nameR
+        ? CG.ae.vp.horizon2Expr(nameL, nameR)
+        : CG.ae.vp.horizon1Expr(nameL);
+    CG.layer.addExprLineGuide(lyr, expr);
+};

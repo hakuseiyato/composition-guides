@@ -46,11 +46,6 @@ CG.guides.center = function (ctx) {
     _line(l, f, 0.0, 0.5, 1.0, 0.5);
 };
 
-// --- 4 分割 / Quad（意味的に別だが線は中央十字と同等） -------------------
-CG.guides.quad = function (ctx) {
-    CG.guides.center(ctx);
-};
-
 // --- 三角構図 / Golden Triangle (Dynamic Symmetry) -----------------------
 // 対角線 1 本 + 反対 2 隅からその対角線への垂線 2 本
 CG.guides.triangle = function (ctx) {
@@ -80,24 +75,6 @@ CG.guides.golden_section = function (ctx) {
     CG.layer.addLineGuide(l, bl, CG.frame.foot(bl, tl, br));
     CG.layer.addLineGuide(l, tl, CG.frame.foot(tl, tr, bl));
     CG.layer.addLineGuide(l, br, CG.frame.foot(br, tr, bl));
-};
-
-// --- 二分割 / Division ----------------------------------------------------
-CG.guides.division = function (ctx) {
-    var f = ctx.frame, l = ctx.layer;
-    if (ctx.state.division_axis === "H") {
-        _line(l, f, 0.0, 0.5, 1.0, 0.5);
-    } else {
-        _line(l, f, 0.5, 0.0, 0.5, 1.0);
-    }
-};
-
-// --- シンメトリー / Symmetry ----------------------------------------------
-CG.guides.symmetry = function (ctx) {
-    var f = ctx.frame, l = ctx.layer;
-    var ax = ctx.state.symmetry_axis;
-    if (ax === "H" || ax === "BOTH") { _line(l, f, 0.0, 0.5, 1.0, 0.5); }
-    if (ax === "V" || ax === "BOTH") { _line(l, f, 0.5, 0.0, 0.5, 1.0); }
 };
 
 // --- フレーム外周 / Frame Border -----------------------------------------
@@ -184,9 +161,8 @@ CG.guides.bullseye = function (ctx) {
 };
 
 // --- 黄金螺旋 / Golden Spiral（Fibonacci, 4 方向） -----------------------
-CG.guides.spiral = function (ctx) {
+function _spiralOne(ctx, orientation) {
     var f = ctx.frame, l = ctx.layer;
-    var orientation = ctx.state.spiral_orientation;
 
     var rect = [0.0, 0.0, 1.0, 1.0];   // u0, v0, u1, v1
     var cur = orientation;
@@ -246,6 +222,13 @@ CG.guides.spiral = function (ctx) {
         coords.push(_uv(f, arc_uv[q][0], arc_uv[q][1]));
     }
     CG.layer.addPolylineGuide(l, coords, false);
+}
+
+CG.guides.spiral = function (ctx) {
+    if (ctx.state.show_spiral_tl) { _spiralOne(ctx, "TL"); }
+    if (ctx.state.show_spiral_tr) { _spiralOne(ctx, "TR"); }
+    if (ctx.state.show_spiral_bl) { _spiralOne(ctx, "BL"); }
+    if (ctx.state.show_spiral_br) { _spiralOne(ctx, "BR"); }
 };
 
 // --- セーフエリア / Safe Area（Action + Title） --------------------------

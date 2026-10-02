@@ -63,14 +63,18 @@ CG.ui.show = function (doc, state) {
     abPanel.alignChildren = ["left", "center"];
     abPanel.margins = 10;
     abPanel.add("statictext", undefined, "対象:");
-    var abItems = ["アクティブ / Active"];
+    var abItems = ["アクティブ / Active", "すべて / All artboards"];
     for (var i = 0; i < doc.artboards.length; i++) {
         abItems.push((i + 1) + ": " + doc.artboards[i].name);
     }
     var abDrop = abPanel.add("dropdownlist", undefined, abItems);
-    abDrop.selection = (state.artboard_index < 0) ? 0 : (state.artboard_index + 1);
+    // -1 = アクティブ → index 0、-2 = 全アートボード → index 1、0 以上 → index + 2
+    abDrop.selection = (state.artboard_index === -1)
+        ? 0
+        : ((state.artboard_index === -2) ? 1 : (state.artboard_index + 2));
     abDrop.onChange = function () {
-        state.artboard_index = (this.selection.index === 0) ? -1 : (this.selection.index - 1);
+        var idx = this.selection.index;
+        state.artboard_index = (idx === 0) ? -1 : ((idx === 1) ? -2 : (idx - 2));
     };
 
     // --- 構図ガイド ---
@@ -82,7 +86,6 @@ CG.ui.show = function (doc, state) {
     checkRow(gp, "show_golden", "黄金比 / Golden Ratio");
     checkRow(gp, "show_diagonal", "対角線 / Diagonal");
     checkRow(gp, "show_center", "中央十字 / Center Cross");
-    checkRow(gp, "show_quad", "4 分割 / Quad");
     checkRow(gp, "show_golden_section", "黄金分割 / Golden Section");
 
     // 三角構図（向き付き）
@@ -98,16 +101,11 @@ CG.ui.show = function (doc, state) {
         state.triangle_orientation = (this.selection.index === 0) ? "TL_BR" : "TR_BL";
     };
 
-    // 黄金螺旋（収束方向）
-    cbDropRow(gp, "show_spiral", "黄金螺旋 / Spiral",
-        ["左上 TL", "右上 TR", "左下 BL", "右下 BR"],
-        function () {
-            var o = state.spiral_orientation;
-            return (o === "TL") ? 0 : (o === "TR") ? 1 : (o === "BL") ? 2 : 3;
-        },
-        function (idx) {
-            state.spiral_orientation = ["TL", "TR", "BL", "BR"][idx];
-        });
+    // 黄金螺旋（4方向独立）
+    checkRow(gp, "show_spiral_tl", "黄金螺旋 左上 TL");
+    checkRow(gp, "show_spiral_tr", "黄金螺旋 右上 TR");
+    checkRow(gp, "show_spiral_bl", "黄金螺旋 左下 BL");
+    checkRow(gp, "show_spiral_br", "黄金螺旋 右下 BR");
 
     // --- 絵画構図 ---
     var pp = win.add("panel", undefined, "絵画構図 / Painting");
@@ -115,32 +113,6 @@ CG.ui.show = function (doc, state) {
     pp.alignChildren = ["fill", "top"];
     pp.margins = 10;
 
-    // 二分割（軸付き）
-    var divRow = pp.add("group");
-    divRow.orientation = "row";
-    divRow.alignChildren = ["left", "center"];
-    var divCb = divRow.add("checkbox", undefined, "二分割 / Division");
-    divCb.value = state.show_division;
-    divCb.onClick = function () { state.show_division = this.value; };
-    var divDrop = divRow.add("dropdownlist", undefined, ["横 / H", "縦 / V"]);
-    divDrop.selection = (state.division_axis === "H") ? 0 : 1;
-    divDrop.onChange = function () {
-        state.division_axis = (this.selection.index === 0) ? "H" : "V";
-    };
-
-    // シンメトリー（軸付き）
-    var symRow = pp.add("group");
-    symRow.orientation = "row";
-    symRow.alignChildren = ["left", "center"];
-    var symCb = symRow.add("checkbox", undefined, "シンメトリー / Symmetry");
-    symCb.value = state.show_symmetry;
-    symCb.onClick = function () { state.show_symmetry = this.value; };
-    var symDrop = symRow.add("dropdownlist", undefined, ["横 / H", "縦 / V", "両方 / Both"]);
-    symDrop.selection = (state.symmetry_axis === "H") ? 0 : (state.symmetry_axis === "V" ? 1 : 2);
-    symDrop.onChange = function () {
-        var idx = this.selection.index;
-        state.symmetry_axis = (idx === 0) ? "H" : (idx === 1 ? "V" : "BOTH");
-    };
 
     // 水平線 / 垂直線（位置）
     numRow(pp, "show_horizontal_line", "水平線 / Horizontal（高さ 0..1）", "horizontal_pos", false);

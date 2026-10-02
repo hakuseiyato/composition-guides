@@ -25,7 +25,7 @@ CG.PHI_LONG = CG.PHI / (1.0 + CG.PHI);        // ≈ 0.6180339887 (長辺比)
 // 既定設定を返す / Return default settings object
 CG.defaults = function () {
     return {
-        // 基準アートボード index（-1 = アクティブ）
+        // 基準アートボード index（-1 = アクティブ, -2 = 全アートボード）
         artboard_index: -1,
 
         // ----- 構図ガイド / Composition guides -----
@@ -33,20 +33,17 @@ CG.defaults = function () {
         show_golden: false,
         show_diagonal: false,
         show_center: false,
-        show_quad: false,
         show_triangle: false,
         triangle_orientation: "TL_BR",   // 'TL_BR' / 'TR_BL'
         show_golden_section: false,
 
         // ----- 絵画構図 / Painting -----
-        show_division: false,
-        division_axis: "H",              // 'H' / 'V'
-        show_symmetry: false,
-        symmetry_axis: "V",              // 'H' / 'V' / 'BOTH'
 
         // ----- Phase 2: パラメトリック / Parametric -----
-        show_spiral: false,
-        spiral_orientation: "TL",        // 'TL' / 'TR' / 'BL' / 'BR'
+        show_spiral_tl: false,
+        show_spiral_tr: false,
+        show_spiral_bl: false,
+        show_spiral_br: false,
 
         show_horizontal_line: false,
         horizontal_pos: 0.5,             // 0=下端, 1=上端
@@ -86,6 +83,7 @@ CG.defaults = function () {
         perspective_lines: 12,           // 各 VP からの放射本数
         perspective_show_vp_marker: true,
         perspective_show_horizon: true,
+        perspective_live_vp: true,       // AE: VP をヌルレイヤーで調整（IL は無視）
 
         // ----- 枠 / Frame -----
         show_frame: false
@@ -102,9 +100,24 @@ CG.defaults = function () {
 
 CG.frame = {};
 
-// プラットフォーム中立エントリ（generate.jsx から呼ばれる）。IL はアートボード基準。
+// プラットフォーム中立エントリ。IL はアートボード基準。
+// generate.jsx の主経路は下の CG.frame.list()。IL 側ではここは呼ばれない
+// （AE 側は ae/frame.jsx の list から fromBase を呼んでいる）。
 CG.frame.fromBase = function (doc, state) {
     return CG.frame.fromArtboard(doc, state.artboard_index);
+};
+
+// 描画対象フレームの配列を返す（generate.jsx から呼ばれる）。
+// state.artboard_index === -2 で全アートボード、それ以外は従来通り 1 枚。
+CG.frame.list = function (doc, state) {
+    if (state.artboard_index === -2) {
+        var frames = [];
+        for (var i = 0; i < doc.artboards.length; i++) {
+            frames.push(CG.frame.fromArtboard(doc, i));
+        }
+        return frames;
+    }
+    return [CG.frame.fromArtboard(doc, state.artboard_index)];
 };
 
 // ホスト依存処理の中立化（IL は app.redraw）。
@@ -210,6 +223,126 @@ CG.frame.foot = function (p, a, b) {
     return [a[0] + t * abx, a[1] + t * aby];
 };
 // ===== end core/frame.jsx =====
+// ===== begin core/dedup.jsx =====
+// Composition Guides for Illustrator
+// dedup.jsx — 同一ジオメトリの重複ガイドを 1 本に畳む
+//
+// src/ae/layer.jsx は対象外。AE は 1 コンポ = 1 フレームで被りが起きないため。
+// キーの先頭を "L" / "P" / "E" にするのは、_seen がプレーンオブジェクトなので
+// "constructor" 等の Object.prototype プロパティ名と衝突させないため。
+
+CG.dedup = {};
+
+CG.dedup._seen = {};
+
+CG.dedup.reset = function () {
+    CG.dedup._seen = {};
+};
+
+// 座標を 0.01 単位に量子化する。
+function _q(v) {
+    return Math.round(v * 100) / 100;
+}
+
+CG.dedup.claim = function (key) {
+    if (CG.dedup._seen[key]) {
+        return false;
+    }
+    CG.dedup._seen[key] = true;
+    return true;
+};
+
+CG.dedup.segKey = function (p0, p1) {
+    var x0 = _q(p0[0]);
+    var y0 = _q(p0[1]);
+    var x1 = _q(p1[0]);
+    var y1 = _q(p1[1]);
+    var swap = (x0 > x1) || (x0 === x1 && y0 > y1);
+    if (swap) {
+        var tx = x0;
+        var ty = y0;
+        x0 = x1;
+        y0 = y1;
+        x1 = tx;
+        y1 = ty;
+    }
+    return "L" + x0 + "," + y0 + "|" + x1 + "," + y1;
+};
+
+CG.dedup.ptsKey = function (pts, closed) {
+    // ponytail: 頂点順が一致するものだけ同一視する。逆順の同一形状は別扱い。実害が出たら正規化を足す。
+    var key = "P";
+    for (var i = 0; i < pts.length; i++) {
+        if (i > 0) {
+            key += "|";
+        }
+        key += _q(pts[i][0]) + "," + _q(pts[i][1]);
+    }
+    return key + "|" + (closed ? "true" : "false");
+};
+
+CG.dedup.ellipseKey = function (cx, cy, rx, ry) {
+    return "E" + _q(cx) + "," + _q(cy) + "|" + _q(rx) + "," + _q(ry);
+};
+
+CG.dedup.selfCheck = function () {
+    CG.dedup.reset();
+    var failures = [];
+    var keyA = CG.dedup.segKey([0, 0], [10, 5]);
+    var keyB = CG.dedup.segKey([10, 5], [0, 0]);
+    var keyC = CG.dedup.segKey([0, 0], [10, 6]);
+    var keyD = CG.dedup.segKey([0.001, 0], [10, 5]);
+
+    if (keyA !== keyB) {
+        failures.push("項目 1: 線分キーが端点順に依存しています");
+    }
+    if (keyA === keyC) {
+        failures.push("項目 2: 異なる線分が同じキーになっています");
+    }
+
+    CG.dedup.reset();
+    if (!CG.dedup.claim(keyA) || CG.dedup.claim(keyA)) {
+        failures.push("項目 3: claim の既出判定が正しくありません");
+    }
+
+    if (keyA !== keyD) {
+        failures.push("項目 4: 量子化未満の座標差が同一視されません");
+    }
+
+    CG.dedup.reset();
+    var ptsKey = CG.dedup.ptsKey([[0, 0], [10, 5], [5, 10]], true);
+    if (!CG.dedup.claim(ptsKey) || CG.dedup.claim(ptsKey)) {
+        failures.push("項目 5: ptsKey の既出判定が正しくありません");
+    }
+    // 形状が違えばキーも違うこと。これを見ないと、ptsKey が定数を返しても
+    // 項目 5 は通る（全ポリラインが 1 本に潰れても検出できない）
+    if (ptsKey === CG.dedup.ptsKey([[0, 0], [10, 5], [5, 11]], true)) {
+        failures.push("項目 6: 異なる頂点列が同じ ptsKey になっています");
+    }
+    if (ptsKey === CG.dedup.ptsKey([[0, 0], [10, 5], [5, 10]], false)) {
+        failures.push("項目 7: closed の違いが ptsKey に反映されていません");
+    }
+
+    CG.dedup.reset();
+    var ellipseKey = CG.dedup.ellipseKey(10, 20, 5, 3);
+    if (!CG.dedup.claim(ellipseKey) || CG.dedup.claim(ellipseKey)) {
+        failures.push("項目 8: ellipseKey の既出判定が正しくありません");
+    }
+    // 同上。ellipseKey が定数を返しても項目 8 は通ってしまう
+    if (ellipseKey === CG.dedup.ellipseKey(10, 20, 5, 4)) {
+        failures.push("項目 9: 異なる半径が同じ ellipseKey になっています");
+    }
+    if (ellipseKey === CG.dedup.ellipseKey(11, 20, 5, 3)) {
+        failures.push("項目 10: 異なる中心が同じ ellipseKey になっています");
+    }
+
+    CG.dedup.reset();
+    if (failures.length === 0) {
+        return "OK";
+    }
+    return failures.join(" / ");
+};
+// ===== end core/dedup.jsx =====
 // ===== begin core/guidelayer.jsx =====
 // Composition Guides for Illustrator
 // core/guidelayer.jsx — ガイド用レイヤー管理とガイド生成プリミティブ
@@ -260,6 +393,7 @@ CG.layer.finalize = function (lyr) {
 
 // 1 本の線分ガイド。p0, p1 は [x, y]
 CG.layer.addLineGuide = function (lyr, p0, p1) {
+    if (CG.dedup && !CG.dedup.claim(CG.dedup.segKey(p0, p1))) { return null; }
     var item = lyr.pathItems.add();
     item.setEntirePath([[p0[0], p0[1]], [p1[0], p1[1]]]);
     item.guides = true;
@@ -269,6 +403,7 @@ CG.layer.addLineGuide = function (lyr, p0, p1) {
 // pts = [[x,y], ...] の連続線（オプションで閉じる）をガイド化
 CG.layer.addPolylineGuide = function (lyr, pts, closed) {
     if (pts.length < 2) { return null; }
+    if (CG.dedup && !CG.dedup.claim(CG.dedup.ptsKey(pts, closed))) { return null; }
     var item = lyr.pathItems.add();
     item.setEntirePath(pts);
     if (closed) { item.closed = true; }
@@ -278,6 +413,7 @@ CG.layer.addPolylineGuide = function (lyr, pts, closed) {
 
 // 中央 (cx,cy) 半径 (rx,ry) の楕円ガイド
 CG.layer.addEllipseGuide = function (lyr, cx, cy, rx, ry) {
+    if (CG.dedup && !CG.dedup.claim(CG.dedup.ellipseKey(cx, cy, rx, ry))) { return null; }
     // ellipse(top, left, width, height): top は上端 y、left は左端 x
     var item = lyr.pathItems.ellipse(cy + ry, cx - rx, rx * 2.0, ry * 2.0);
     item.guides = true;
@@ -340,11 +476,6 @@ CG.guides.center = function (ctx) {
     _line(l, f, 0.0, 0.5, 1.0, 0.5);
 };
 
-// --- 4 分割 / Quad（意味的に別だが線は中央十字と同等） -------------------
-CG.guides.quad = function (ctx) {
-    CG.guides.center(ctx);
-};
-
 // --- 三角構図 / Golden Triangle (Dynamic Symmetry) -----------------------
 // 対角線 1 本 + 反対 2 隅からその対角線への垂線 2 本
 CG.guides.triangle = function (ctx) {
@@ -374,24 +505,6 @@ CG.guides.golden_section = function (ctx) {
     CG.layer.addLineGuide(l, bl, CG.frame.foot(bl, tl, br));
     CG.layer.addLineGuide(l, tl, CG.frame.foot(tl, tr, bl));
     CG.layer.addLineGuide(l, br, CG.frame.foot(br, tr, bl));
-};
-
-// --- 二分割 / Division ----------------------------------------------------
-CG.guides.division = function (ctx) {
-    var f = ctx.frame, l = ctx.layer;
-    if (ctx.state.division_axis === "H") {
-        _line(l, f, 0.0, 0.5, 1.0, 0.5);
-    } else {
-        _line(l, f, 0.5, 0.0, 0.5, 1.0);
-    }
-};
-
-// --- シンメトリー / Symmetry ----------------------------------------------
-CG.guides.symmetry = function (ctx) {
-    var f = ctx.frame, l = ctx.layer;
-    var ax = ctx.state.symmetry_axis;
-    if (ax === "H" || ax === "BOTH") { _line(l, f, 0.0, 0.5, 1.0, 0.5); }
-    if (ax === "V" || ax === "BOTH") { _line(l, f, 0.5, 0.0, 0.5, 1.0); }
 };
 
 // --- フレーム外周 / Frame Border -----------------------------------------
@@ -478,9 +591,8 @@ CG.guides.bullseye = function (ctx) {
 };
 
 // --- 黄金螺旋 / Golden Spiral（Fibonacci, 4 方向） -----------------------
-CG.guides.spiral = function (ctx) {
+function _spiralOne(ctx, orientation) {
     var f = ctx.frame, l = ctx.layer;
-    var orientation = ctx.state.spiral_orientation;
 
     var rect = [0.0, 0.0, 1.0, 1.0];   // u0, v0, u1, v1
     var cur = orientation;
@@ -540,6 +652,13 @@ CG.guides.spiral = function (ctx) {
         coords.push(_uv(f, arc_uv[q][0], arc_uv[q][1]));
     }
     CG.layer.addPolylineGuide(l, coords, false);
+}
+
+CG.guides.spiral = function (ctx) {
+    if (ctx.state.show_spiral_tl) { _spiralOne(ctx, "TL"); }
+    if (ctx.state.show_spiral_tr) { _spiralOne(ctx, "TR"); }
+    if (ctx.state.show_spiral_bl) { _spiralOne(ctx, "BL"); }
+    if (ctx.state.show_spiral_br) { _spiralOne(ctx, "BR"); }
 };
 
 // --- セーフエリア / Safe Area（Action + Title） --------------------------
@@ -609,7 +728,9 @@ CG.perspective._raysFromVP = function (lyr, frame, vp, n) {
     var ab = CG.frame.aabb(frame);
     var center = CG.frame.uvToPoint(frame, 0.5, 0.5);
     var dxRef = center[0] - vp[0], dyRef = center[1] - vp[1];
-    if (Math.abs(dxRef) < 1e-6 && Math.abs(dyRef) < 1e-6) { return; }
+    // VP が frame 中心ちょうどのときは基準方向が定まらないが、atan2(0,0) === 0 で
+    // +x 方向を基準に扇を張れば足りる。以前はここで return しており、既定の 1P
+    // （VP横=0.5, 水平線高さ=0.5）でパース線が 1 本も出なかった
     var base = Math.atan2(dyRef, dxRef);
 
     // 4 隅への角度を base まわりに正規化して範囲を決める
@@ -620,7 +741,12 @@ CG.perspective._raysFromVP = function (lyr, frame, vp, n) {
     var aMin = 1e9, aMax = -1e9;
     for (var c = 0; c < corners.length; c++) {
         var a = Math.atan2(corners[c][1] - vp[1], corners[c][0] - vp[0]);
-        var diff = ((a - base + Math.PI) % (2 * Math.PI)) - Math.PI;
+        // base まわりの符号付き差 (-π, π]。JS の % は被除数が負だと負を返すため、
+        // 一度正方向へ回してから -π する（base が ±π 近傍だと a-base+π が負に落ちて
+        // 角度範囲が一周ぶん壊れる。既定の 2P 右 VP がまさにこれに当たっていた）
+        var diff = (a - base + Math.PI) % (2 * Math.PI);
+        if (diff < 0) { diff += 2 * Math.PI; }
+        diff -= Math.PI;
         if (diff < aMin) { aMin = diff; }
         if (diff > aMax) { aMax = diff; }
     }
@@ -653,8 +779,53 @@ CG.perspective._vpMarker = function (lyr, frame, vp) {
     CG.layer.addLineGuide(lyr, [vp[0], vp[1] - size], [vp[0], vp[1] + size]);
 };
 
+CG.perspective._live = function (ctx) {
+    var f = ctx.frame, l = ctx.layer, s = ctx.state;
+    var hv = s.perspective_horizon_v;
+    var n = Math.max(2, Math.round(s.perspective_lines));
+    var keep = [];
+
+    if (s.perspective_mode === "1P") {
+        var nameP1 = CG.layer.ensureVP(f, "P1", CG.frame.uvToPoint(f, s.perspective_vp1_u, hv));
+        keep.push(nameP1);
+        CG.layer.addRaysLive(l, nameP1, n);
+        if (s.perspective_show_vp_marker) { CG.layer.addVPMarkerLive(l, nameP1); }
+        if (s.perspective_show_horizon) { CG.layer.addHorizonLive(l, nameP1, null); }
+    } else {
+        var nameL = CG.layer.ensureVP(f, "L", CG.frame.uvToPoint(f, 0.5 - s.perspective_vp_spread, hv));
+        var nameR = CG.layer.ensureVP(f, "R", CG.frame.uvToPoint(f, 0.5 + s.perspective_vp_spread, hv));
+        keep.push(nameL); keep.push(nameR);
+        CG.layer.addRaysLive(l, nameL, n);
+        CG.layer.addRaysLive(l, nameR, n);
+        if (s.perspective_show_vp_marker) {
+            CG.layer.addVPMarkerLive(l, nameL);
+            CG.layer.addVPMarkerLive(l, nameR);
+        }
+
+        if (s.perspective_mode === "3P") {
+            var nameV3 = CG.layer.ensureVP(f, "V3", CG.frame.uvToPoint(f, 0.5, hv + s.perspective_vp3_dist));
+            keep.push(nameV3);
+            CG.layer.addRaysLive(l, nameV3, n);
+            if (s.perspective_show_vp_marker) { CG.layer.addVPMarkerLive(l, nameV3); }
+        }
+
+        if (s.perspective_show_horizon) { CG.layer.addHorizonLive(l, nameL, nameR); }
+    }
+
+    // ponytail: keep はこのフレームの VP のみ。複数フレーム × live VP が同時に
+    // 成立するバックエンドができたら、後のフレームが前のフレームの VP ヌルを消す。
+    // 現状 live VP は AE 専用で AE は常に 1 フレームのため到達しない。
+    CG.layer.pruneVP(f, keep);
+};
+
 CG.guides.perspective = function (ctx) {
     var f = ctx.frame, l = ctx.layer, s = ctx.state;
+    var live = !!(s.perspective_live_vp && CG.layer.perspectiveLive);
+    if (live) {
+        CG.perspective._live(ctx);
+        return;
+    }
+    if (CG.layer.pruneVP) { CG.layer.pruneVP(f, []); }
     var hv = s.perspective_horizon_v;
     var n = Math.max(2, Math.round(s.perspective_lines));
     var P = CG.perspective;
@@ -702,10 +873,8 @@ CG.guides.perspective = function (ctx) {
 //
 // state に基づき、専用レイヤーを作り直して有効なガイドを描画する。
 
-// doc: IL=Document / AE=CompItem。基準フレーム取得とレイヤー生成はバックエンドが担う。
-CG.generate = function (doc, state) {
-    var frame = CG.frame.fromBase(doc, state);
-    var layer = CG.layer.recreate(doc);
+// 1 フレーム分のガイドを描く。frame / layer / state を受け取る。
+CG._drawFrame = function (frame, layer, state) {
     var ctx = { frame: frame, layer: layer, state: state };
 
     // 構図ガイド
@@ -713,16 +882,13 @@ CG.generate = function (doc, state) {
     if (state.show_golden)         { CG.guides.golden(ctx); }
     if (state.show_diagonal)       { CG.guides.diagonal(ctx); }
     if (state.show_center)         { CG.guides.center(ctx); }
-    if (state.show_quad)           { CG.guides.quad(ctx); }
     if (state.show_triangle)       { CG.guides.triangle(ctx); }
     if (state.show_golden_section) { CG.guides.golden_section(ctx); }
 
     // 絵画構図
-    if (state.show_division)       { CG.guides.division(ctx); }
-    if (state.show_symmetry)       { CG.guides.symmetry(ctx); }
 
     // Phase 2: パラメトリック
-    if (state.show_spiral)          { CG.guides.spiral(ctx); }
+    if (state.show_spiral_tl || state.show_spiral_tr || state.show_spiral_bl || state.show_spiral_br) { CG.guides.spiral(ctx); }
     if (state.show_horizontal_line) { CG.guides.horizontal_line(ctx); }
     if (state.show_vertical_line)   { CG.guides.vertical_line(ctx); }
     if (state.show_slanted)         { CG.guides.slanted(ctx); }
@@ -735,13 +901,26 @@ CG.generate = function (doc, state) {
 
     // Phase 3: パース線
     if (state.show_perspective)     { CG.guides.perspective(ctx); }
+    else if (CG.layer.pruneVP)      { CG.layer.pruneVP(frame, []); }   // AE: パース OFF なら VP ヌルも掃除
 
     // 枠
     if (state.show_frame)          { CG.guides.frame_border(ctx); }
+};
 
+// doc: IL=Document / AE=CompItem。基準フレーム取得とレイヤー生成はバックエンドが担う。
+// 戻り値: 単一フレームならその index、複数フレーム（全アートボード）なら -2。
+CG.generate = function (doc, state) {
+    var frames = CG.frame.list(doc, state);
+    var layer = CG.layer.recreate(doc);
+    if (CG.dedup) { CG.dedup.reset(); }          // AE では未ロード = no-op
+    for (var i = 0; i < frames.length; i++) {
+        CG._drawFrame(frames[i], layer, state);
+    }
     CG.layer.finalize(layer);
     CG.host.redraw();
-    return frame.index;
+    // -2 = 「全アートボードモードで生成した」。frames.length で判定すると
+    // アートボードが 1 枚の文書で「すべて」を選んだときに UI の文言がずれる
+    return (state.artboard_index === -2) ? -2 : frames[0].index;
 };
 // ===== end generate.jsx =====
 // ===== begin ui/panel.jsx =====
@@ -810,14 +989,18 @@ CG.ui.show = function (doc, state) {
     abPanel.alignChildren = ["left", "center"];
     abPanel.margins = 10;
     abPanel.add("statictext", undefined, "対象:");
-    var abItems = ["アクティブ / Active"];
+    var abItems = ["アクティブ / Active", "すべて / All artboards"];
     for (var i = 0; i < doc.artboards.length; i++) {
         abItems.push((i + 1) + ": " + doc.artboards[i].name);
     }
     var abDrop = abPanel.add("dropdownlist", undefined, abItems);
-    abDrop.selection = (state.artboard_index < 0) ? 0 : (state.artboard_index + 1);
+    // -1 = アクティブ → index 0、-2 = 全アートボード → index 1、0 以上 → index + 2
+    abDrop.selection = (state.artboard_index === -1)
+        ? 0
+        : ((state.artboard_index === -2) ? 1 : (state.artboard_index + 2));
     abDrop.onChange = function () {
-        state.artboard_index = (this.selection.index === 0) ? -1 : (this.selection.index - 1);
+        var idx = this.selection.index;
+        state.artboard_index = (idx === 0) ? -1 : ((idx === 1) ? -2 : (idx - 2));
     };
 
     // --- 構図ガイド ---
@@ -829,7 +1012,6 @@ CG.ui.show = function (doc, state) {
     checkRow(gp, "show_golden", "黄金比 / Golden Ratio");
     checkRow(gp, "show_diagonal", "対角線 / Diagonal");
     checkRow(gp, "show_center", "中央十字 / Center Cross");
-    checkRow(gp, "show_quad", "4 分割 / Quad");
     checkRow(gp, "show_golden_section", "黄金分割 / Golden Section");
 
     // 三角構図（向き付き）
@@ -845,16 +1027,11 @@ CG.ui.show = function (doc, state) {
         state.triangle_orientation = (this.selection.index === 0) ? "TL_BR" : "TR_BL";
     };
 
-    // 黄金螺旋（収束方向）
-    cbDropRow(gp, "show_spiral", "黄金螺旋 / Spiral",
-        ["左上 TL", "右上 TR", "左下 BL", "右下 BR"],
-        function () {
-            var o = state.spiral_orientation;
-            return (o === "TL") ? 0 : (o === "TR") ? 1 : (o === "BL") ? 2 : 3;
-        },
-        function (idx) {
-            state.spiral_orientation = ["TL", "TR", "BL", "BR"][idx];
-        });
+    // 黄金螺旋（4方向独立）
+    checkRow(gp, "show_spiral_tl", "黄金螺旋 左上 TL");
+    checkRow(gp, "show_spiral_tr", "黄金螺旋 右上 TR");
+    checkRow(gp, "show_spiral_bl", "黄金螺旋 左下 BL");
+    checkRow(gp, "show_spiral_br", "黄金螺旋 右下 BR");
 
     // --- 絵画構図 ---
     var pp = win.add("panel", undefined, "絵画構図 / Painting");
@@ -862,32 +1039,6 @@ CG.ui.show = function (doc, state) {
     pp.alignChildren = ["fill", "top"];
     pp.margins = 10;
 
-    // 二分割（軸付き）
-    var divRow = pp.add("group");
-    divRow.orientation = "row";
-    divRow.alignChildren = ["left", "center"];
-    var divCb = divRow.add("checkbox", undefined, "二分割 / Division");
-    divCb.value = state.show_division;
-    divCb.onClick = function () { state.show_division = this.value; };
-    var divDrop = divRow.add("dropdownlist", undefined, ["横 / H", "縦 / V"]);
-    divDrop.selection = (state.division_axis === "H") ? 0 : 1;
-    divDrop.onChange = function () {
-        state.division_axis = (this.selection.index === 0) ? "H" : "V";
-    };
-
-    // シンメトリー（軸付き）
-    var symRow = pp.add("group");
-    symRow.orientation = "row";
-    symRow.alignChildren = ["left", "center"];
-    var symCb = symRow.add("checkbox", undefined, "シンメトリー / Symmetry");
-    symCb.value = state.show_symmetry;
-    symCb.onClick = function () { state.show_symmetry = this.value; };
-    var symDrop = symRow.add("dropdownlist", undefined, ["横 / H", "縦 / V", "両方 / Both"]);
-    symDrop.selection = (state.symmetry_axis === "H") ? 0 : (state.symmetry_axis === "V" ? 1 : 2);
-    symDrop.onChange = function () {
-        var idx = this.selection.index;
-        state.symmetry_axis = (idx === 0) ? "H" : (idx === 1 ? "V" : "BOTH");
-    };
 
     // 水平線 / 垂直線（位置）
     numRow(pp, "show_horizontal_line", "水平線 / Horizontal（高さ 0..1）", "horizontal_pos", false);

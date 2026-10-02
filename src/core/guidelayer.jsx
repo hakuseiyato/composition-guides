@@ -47,6 +47,7 @@ CG.layer.finalize = function (lyr) {
 
 // 1 本の線分ガイド。p0, p1 は [x, y]
 CG.layer.addLineGuide = function (lyr, p0, p1) {
+    if (CG.dedup && !CG.dedup.claim(CG.dedup.segKey(p0, p1))) { return null; }
     var item = lyr.pathItems.add();
     item.setEntirePath([[p0[0], p0[1]], [p1[0], p1[1]]]);
     item.guides = true;
@@ -56,6 +57,7 @@ CG.layer.addLineGuide = function (lyr, p0, p1) {
 // pts = [[x,y], ...] の連続線（オプションで閉じる）をガイド化
 CG.layer.addPolylineGuide = function (lyr, pts, closed) {
     if (pts.length < 2) { return null; }
+    if (CG.dedup && !CG.dedup.claim(CG.dedup.ptsKey(pts, closed))) { return null; }
     var item = lyr.pathItems.add();
     item.setEntirePath(pts);
     if (closed) { item.closed = true; }
@@ -65,6 +67,7 @@ CG.layer.addPolylineGuide = function (lyr, pts, closed) {
 
 // 中央 (cx,cy) 半径 (rx,ry) の楕円ガイド
 CG.layer.addEllipseGuide = function (lyr, cx, cy, rx, ry) {
+    if (CG.dedup && !CG.dedup.claim(CG.dedup.ellipseKey(cx, cy, rx, ry))) { return null; }
     // ellipse(top, left, width, height): top は上端 y、left は左端 x
     var item = lyr.pathItems.ellipse(cy + ry, cx - rx, rx * 2.0, ry * 2.0);
     item.guides = true;

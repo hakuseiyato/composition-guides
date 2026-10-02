@@ -4,3 +4,6 @@ Thumbs.db
 .vs/
 *.suo
 *.user
+
+# 配布 ZIP（tools/package.ps1 の出力）
+release/

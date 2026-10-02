@@ -1,17 +1,17 @@
 <?xml version="1.0" encoding="UTF-8" standalone="no"?>
 <ExtensionManifest
   Version="6.0"
-  ExtensionBundleId="com.yato.compositionguides"
+  ExtensionBundleId="com.yato.compositionguides.ppro"
   ExtensionBundleVersion="0.10.0"
-  ExtensionBundleName="Composition Guides"
+  ExtensionBundleName="Composition Guides (Premiere Pro)"
   xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
   <ExtensionList>
-    <Extension Id="com.yato.compositionguides.panel" Version="0.10.0" />
+    <Extension Id="com.yato.compositionguides.ppro.panel" Version="0.10.0" />
   </ExtensionList>
   <ExecutionEnvironment>
     <HostList>
-      <!-- ILST = Illustrator -->
-      <Host Name="ILST" Version="[0.0,99.9]" />
+      <!-- PPRO = Premiere Pro -->
+      <Host Name="PPRO" Version="[24.0,99.9]" />
     </HostList>
     <LocaleList>
       <Locale Code="All" />
@@ -21,11 +21,11 @@
     </RequiredRuntimeList>
   </ExecutionEnvironment>
   <DispatchInfoList>
-    <Extension Id="com.yato.compositionguides.panel">
+    <Extension Id="com.yato.compositionguides.ppro.panel">
       <DispatchInfo>
         <Resources>
           <MainPath>./index.html</MainPath>
-          <ScriptPath>./jsx/engine.jsx</ScriptPath>
+          <ScriptPath>./jsx/host.jsx</ScriptPath>
         </Resources>
         <Lifecycle>
           <AutoVisible>true</AutoVisible>

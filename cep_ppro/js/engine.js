@@ -1,11 +1,13 @@
-// Composition Guides for Illustrator
-// cep_engine.jsx — CEP 用エンジンエントリ（UI/main を含まない）
+// Composition Guides — Premiere Pro 版
+// ppro_engine.jsx — Premiere CEP パネルのブラウザ側で動くエンジン（UI を含まない）
 //
-// CEP の manifest <ScriptPath> から読み込まれ、CG と CGHost を定義するだけ。
-// ダイアログ表示や自動実行は行わない。build.ps1 が #include を展開して
-// cep/jsx/engine.jsx を生成する。
-
-#target illustrator
+// Premiere にはシェイプ描画 API が無いため、描画エンジン（draw/*）をパネルの
+// ブラウザ側で動かし、canvas へ描いて透過 PNG にする。build.ps1 が #include を
+// 展開して cep_ppro/js/engine.js を生成する（ブラウザで読むので #target は書かない）。
+//
+// frame は ae/frame.jsx を再利用する: 数学座標（y 上向き）の frame とクリップ関数が
+// 揃っており、doc は {width, height, canvas} を持つ擬似コンポとして渡せる
+// （fromBase は width/height しか読まない。frame.comp を使うのは AE の VP だけ）。
 
 var CG = {};
 
@@ -88,66 +90,52 @@ CG.defaults = function () {
     };
 };
 // ===== end state.jsx =====
-// ===== begin core/frame.jsx =====
-// Composition Guides for Illustrator
-// core/frame.jsx — アートボード基準フレームと座標変換
+// ===== begin ae/frame.jsx =====
+// Composition Guides — After Effects 版
+// ae/frame.jsx — コンポ基準フレームと座標変換
 //
-// frame = { left, top, right, bottom, w, h }
-//   Illustrator 座標は y 上向き（top > bottom）。アートボードは常に軸並行矩形。
-//   UV: u は左→右 (0..1)、v は下→上 (0..1)。Blender の UV と揃える。
+// 描画エンジン（draw/*）を無改変で再利用するため、frame は IL 版と同一規約とする:
+//   - y は上向き（top > bottom）の「数学座標」
+//   - UV: u は左→右 (0..1)、v は下→上 (0..1)
+// AE のレイヤー座標は y 下向きなので、その変換は ae/layer.jsx 側で行う
+//   （frame.compH を使って描画時に反転）。
 
 CG.frame = {};
 
-// プラットフォーム中立エントリ。IL はアートボード基準。
-// generate.jsx の主経路は下の CG.frame.list()。IL 側ではここは呼ばれない
-// （AE 側は ae/frame.jsx の list から fromBase を呼んでいる）。
-CG.frame.fromBase = function (doc, state) {
-    return CG.frame.fromArtboard(doc, state.artboard_index);
-};
-
-// 描画対象フレームの配列を返す（generate.jsx から呼ばれる）。
-// state.artboard_index === -2 で全アートボード、それ以外は従来通り 1 枚。
-CG.frame.list = function (doc, state) {
-    if (state.artboard_index === -2) {
-        var frames = [];
-        for (var i = 0; i < doc.artboards.length; i++) {
-            frames.push(CG.frame.fromArtboard(doc, i));
-        }
-        return frames;
-    }
-    return [CG.frame.fromArtboard(doc, state.artboard_index)];
-};
-
-// ホスト依存処理の中立化（IL は app.redraw）。
-CG.host = CG.host || {};
-CG.host.redraw = function () { app.redraw(); };
-
-// アクティブ（または index 指定）アートボードの矩形を frame として返す
-CG.frame.fromArtboard = function (doc, index) {
-    var abs = doc.artboards;
-    var i = index;
-    if (i === undefined || i === null || i < 0 || i >= abs.length) {
-        i = abs.getActiveArtboardIndex();
-    }
-    var rect = abs[i].artboardRect; // [left, top, right, bottom]
-    var left = rect[0], top = rect[1], right = rect[2], bottom = rect[3];
+// プラットフォーム中立エントリ（generate.jsx から呼ばれる）。AE はアクティブコンポ基準。
+// comp は CompItem。原点を左下に置く数学座標フレームを返す。
+CG.frame.fromBase = function (comp, state) {
+    var w = comp.width;
+    var h = comp.height;
     return {
-        index: i,
-        left: left,
-        top: top,
-        right: right,
-        bottom: bottom,
-        w: right - left,
-        h: top - bottom
+        index: 0,
+        comp: comp,
+        compH: h,          // AE 座標への y 反転に使う
+        left: 0,
+        bottom: 0,
+        right: w,
+        top: h,
+        w: w,
+        h: h
     };
 };
 
-// UV (u,v) → ドキュメント座標 [x, y]
+// 描画対象フレームの配列を返す（generate.jsx から呼ばれる）。
+// AE はコンポ 1 個が基準でアートボードの概念が無いため、常に単一要素配列を返す。
+CG.frame.list = function (comp, state) {
+    return [CG.frame.fromBase(comp, state)];
+};
+
+// ホスト依存処理の中立化。AE はコンポが自動更新されるため no-op。
+CG.host = CG.host || {};
+CG.host.redraw = function () { /* AE: no explicit redraw needed */ };
+
+// UV (u,v) → 数学座標 [x, y]（y 上向き）
 CG.frame.uvToPoint = function (frame, u, v) {
     return [frame.left + u * frame.w, frame.bottom + v * frame.h];
 };
 
-// frame の AABB（UV→点で 4 隅）を返す
+// frame の AABB（数学座標）
 CG.frame.aabb = function (frame) {
     return {
         x_min: frame.left,
@@ -220,211 +208,99 @@ CG.frame.foot = function (p, a, b) {
     var t = ((p[0] - a[0]) * abx + (p[1] - a[1]) * aby) / denom;
     return [a[0] + t * abx, a[1] + t * aby];
 };
-// ===== end core/frame.jsx =====
-// ===== begin core/dedup.jsx =====
-// Composition Guides for Illustrator
-// dedup.jsx — 同一ジオメトリの重複ガイドを 1 本に畳む
+// ===== end ae/frame.jsx =====
+// ===== begin ppro/layer.jsx =====
+// Composition Guides — Premiere Pro 版
+// ppro/layer.jsx — canvas バックエンド（描画プリミティブ）
 //
-// src/ae/layer.jsx は対象外。AE は 1 コンポ = 1 フレームで被りが起きないため。
-// キーの先頭を "L" / "P" / "E" にするのは、_seen がプレーンオブジェクトなので
-// "constructor" 等の Object.prototype プロパティ名と衝突させないため。
-
-CG.dedup = {};
-
-CG.dedup._seen = {};
-
-CG.dedup.reset = function () {
-    CG.dedup._seen = {};
-};
-
-// 座標を 0.01 単位に量子化する。
-function _q(v) {
-    return Math.round(v * 100) / 100;
-}
-
-CG.dedup.claim = function (key) {
-    if (CG.dedup._seen[key]) {
-        return false;
-    }
-    CG.dedup._seen[key] = true;
-    return true;
-};
-
-CG.dedup.segKey = function (p0, p1) {
-    var x0 = _q(p0[0]);
-    var y0 = _q(p0[1]);
-    var x1 = _q(p1[0]);
-    var y1 = _q(p1[1]);
-    var swap = (x0 > x1) || (x0 === x1 && y0 > y1);
-    if (swap) {
-        var tx = x0;
-        var ty = y0;
-        x0 = x1;
-        y0 = y1;
-        x1 = tx;
-        y1 = ty;
-    }
-    return "L" + x0 + "," + y0 + "|" + x1 + "," + y1;
-};
-
-CG.dedup.ptsKey = function (pts, closed) {
-    // ponytail: 頂点順が一致するものだけ同一視する。逆順の同一形状は別扱い。実害が出たら正規化を足す。
-    var key = "P";
-    for (var i = 0; i < pts.length; i++) {
-        if (i > 0) {
-            key += "|";
-        }
-        key += _q(pts[i][0]) + "," + _q(pts[i][1]);
-    }
-    return key + "|" + (closed ? "true" : "false");
-};
-
-CG.dedup.ellipseKey = function (cx, cy, rx, ry) {
-    return "E" + _q(cx) + "," + _q(cy) + "|" + _q(rx) + "," + _q(ry);
-};
-
-CG.dedup.selfCheck = function () {
-    CG.dedup.reset();
-    var failures = [];
-    var keyA = CG.dedup.segKey([0, 0], [10, 5]);
-    var keyB = CG.dedup.segKey([10, 5], [0, 0]);
-    var keyC = CG.dedup.segKey([0, 0], [10, 6]);
-    var keyD = CG.dedup.segKey([0.001, 0], [10, 5]);
-
-    if (keyA !== keyB) {
-        failures.push("項目 1: 線分キーが端点順に依存しています");
-    }
-    if (keyA === keyC) {
-        failures.push("項目 2: 異なる線分が同じキーになっています");
-    }
-
-    CG.dedup.reset();
-    if (!CG.dedup.claim(keyA) || CG.dedup.claim(keyA)) {
-        failures.push("項目 3: claim の既出判定が正しくありません");
-    }
-
-    if (keyA !== keyD) {
-        failures.push("項目 4: 量子化未満の座標差が同一視されません");
-    }
-
-    CG.dedup.reset();
-    var ptsKey = CG.dedup.ptsKey([[0, 0], [10, 5], [5, 10]], true);
-    if (!CG.dedup.claim(ptsKey) || CG.dedup.claim(ptsKey)) {
-        failures.push("項目 5: ptsKey の既出判定が正しくありません");
-    }
-    // 形状が違えばキーも違うこと。これを見ないと、ptsKey が定数を返しても
-    // 項目 5 は通る（全ポリラインが 1 本に潰れても検出できない）
-    if (ptsKey === CG.dedup.ptsKey([[0, 0], [10, 5], [5, 11]], true)) {
-        failures.push("項目 6: 異なる頂点列が同じ ptsKey になっています");
-    }
-    if (ptsKey === CG.dedup.ptsKey([[0, 0], [10, 5], [5, 10]], false)) {
-        failures.push("項目 7: closed の違いが ptsKey に反映されていません");
-    }
-
-    CG.dedup.reset();
-    var ellipseKey = CG.dedup.ellipseKey(10, 20, 5, 3);
-    if (!CG.dedup.claim(ellipseKey) || CG.dedup.claim(ellipseKey)) {
-        failures.push("項目 8: ellipseKey の既出判定が正しくありません");
-    }
-    // 同上。ellipseKey が定数を返しても項目 8 は通ってしまう
-    if (ellipseKey === CG.dedup.ellipseKey(10, 20, 5, 4)) {
-        failures.push("項目 9: 異なる半径が同じ ellipseKey になっています");
-    }
-    if (ellipseKey === CG.dedup.ellipseKey(11, 20, 5, 3)) {
-        failures.push("項目 10: 異なる中心が同じ ellipseKey になっています");
-    }
-
-    CG.dedup.reset();
-    if (failures.length === 0) {
-        return "OK";
-    }
-    return failures.join(" / ");
-};
-// ===== end core/dedup.jsx =====
-// ===== begin core/guidelayer.jsx =====
-// Composition Guides for Illustrator
-// core/guidelayer.jsx — ガイド用レイヤー管理とガイド生成プリミティブ
+// Premiere にはシェイプ描画 API とガイドレイヤーが無い。そこでパネル内の
+// canvas（シーケンスのフレームサイズ px）へ各ガイドをストロークし、
+// 透過 PNG として書き出してから host.jsx がシーケンスへ配置する。
 //
-// "Composition Guides" レイヤーを専用に作り、毎回作り直す（= 再生成）。
-// パスを生成したのち pathItem.guides = true でネイティブガイドに変換する。
+// 座標: draw/* は y 上向きの数学座標で点を渡してくる。canvas は y 下向き
+// なので、描く直前に _pproFlip() で y を反転する（AE の _flip と同規約）。
+//
+// perspectiveLive / pruneVP / ensureVP / clearVP / dedup は定義しない:
+//   - Premiere にはエクスプレッションもヌルも無いので、パース線は焼き込み描画にする
+//     （draw/perspective.jsx と generate.jsx は未定義なら焼き込み経路になる）。
+//   - canvas は同じ線を重ね描きしても見た目が変わらないので dedup は不要。
 
 CG.layer = {};
 
 CG.LAYER_NAME = "Composition Guides";
 
-// 既存の Composition Guides レイヤーを返す（無ければ null）
-CG.layer.find = function (doc) {
-    for (var i = 0; i < doc.layers.length; i++) {
-        if (doc.layers[i].name === CG.LAYER_NAME) {
-            return doc.layers[i];
-        }
-    }
-    return null;
-};
+// 描画設定（AE 版と同値）
+CG.STROKE_COLOR = [0.0, 1.0, 1.0];   // シアン (0..1 RGB)
+CG.STROKE_WIDTH = 2.0;               // px
 
-// レイヤーを消去（あれば削除）
-CG.layer.clear = function (doc) {
-    var lyr = CG.layer.find(doc);
-    if (lyr) {
-        lyr.locked = false;
-        lyr.visible = true;
-        lyr.remove();
-        return true;
-    }
-    return false;
-};
+// 現在の生成対象を保持（プリミティブはここを参照する）
+CG._cur = null;   // { ctx, h }
 
-// 専用レイヤーを作り直して返す（既存は削除）
+// 数学座標 [x, y]（y 上向き） → canvas 座標 [x, y']（y 下向き）
+function _pproFlip(p) {
+    return [p[0], CG._cur.h - p[1]];
+}
+
+// 0..1 RGB → "rgb(r,g,b)"
+function _pproRgb(c) {
+    return "rgb(" + Math.round(c[0] * 255) + "," + Math.round(c[1] * 255) + "," + Math.round(c[2] * 255) + ")";
+}
+
+// doc = { width, height, canvas }。canvas をフレームサイズにしてクリアし、描画設定を行う。
+// 戻り値の doc をレイヤートークンとして各プリミティブへ渡す。
 CG.layer.recreate = function (doc) {
-    CG.layer.clear(doc);
-    var lyr = doc.layers.add();
-    lyr.name = CG.LAYER_NAME;
-    return lyr;
+    var canvas = doc.canvas;
+    canvas.width = doc.width;     // サイズ代入でクリアされる
+    canvas.height = doc.height;
+    var ctx = canvas.getContext("2d");
+    ctx.strokeStyle = _pproRgb(CG.STROKE_COLOR);
+    ctx.lineWidth = CG.STROKE_WIDTH;
+    ctx.lineCap = "butt";
+    ctx.lineJoin = "miter";
+    CG._cur = { ctx: ctx, h: doc.height };
+    return doc;
 };
 
-// レイヤーをロックして仕上げる
-CG.layer.finalize = function (lyr) {
-    lyr.locked = true;
-};
+// canvas は描いた時点で確定するので仕上げ処理は無い
+CG.layer.finalize = function (lyr) {};
 
-// --- ガイド生成プリミティブ ---------------------------------------------
+// --- ガイド生成プリミティブ（IL/AE 版と同一シグネチャ） -----------------
 
-// 1 本の線分ガイド。p0, p1 は [x, y]
+// 1 本の線分ガイド。p0, p1 は数学座標 [x, y]
 CG.layer.addLineGuide = function (lyr, p0, p1) {
-    if (CG.dedup && !CG.dedup.claim(CG.dedup.segKey(p0, p1))) { return null; }
-    var item = lyr.pathItems.add();
-    item.setEntirePath([[p0[0], p0[1]], [p1[0], p1[1]]]);
-    item.guides = true;
-    return item;
+    return CG.layer.addPolylineGuide(lyr, [p0, p1], false);
 };
 
 // pts = [[x,y], ...] の連続線（オプションで閉じる）をガイド化
 CG.layer.addPolylineGuide = function (lyr, pts, closed) {
     if (pts.length < 2) { return null; }
-    if (CG.dedup && !CG.dedup.claim(CG.dedup.ptsKey(pts, closed))) { return null; }
-    var item = lyr.pathItems.add();
-    item.setEntirePath(pts);
-    if (closed) { item.closed = true; }
-    item.guides = true;
-    return item;
+    var ctx = CG._cur.ctx;
+    ctx.beginPath();
+    var p = _pproFlip(pts[0]);
+    ctx.moveTo(p[0], p[1]);
+    for (var i = 1; i < pts.length; i++) {
+        p = _pproFlip(pts[i]);
+        ctx.lineTo(p[0], p[1]);
+    }
+    if (closed) { ctx.closePath(); }
+    ctx.stroke();
+    return lyr;
 };
 
-// 中央 (cx,cy) 半径 (rx,ry) の楕円ガイド
+// 中央 (cx,cy) 半径 (rx,ry) の楕円ガイド（数学座標）
 CG.layer.addEllipseGuide = function (lyr, cx, cy, rx, ry) {
-    if (CG.dedup && !CG.dedup.claim(CG.dedup.ellipseKey(cx, cy, rx, ry))) { return null; }
-    // ellipse(top, left, width, height): top は上端 y、left は左端 x
-    var item = lyr.pathItems.ellipse(cy + ry, cx - rx, rx * 2.0, ry * 2.0);
-    item.guides = true;
-    return item;
+    var ctx = CG._cur.ctx;
+    ctx.beginPath();
+    ctx.ellipse(cx, CG._cur.h - cy, rx, ry, 0, 0, 2 * Math.PI);
+    ctx.stroke();
+    return lyr;
 };
 
-// 矩形（4 辺）をガイド化。UV ではなく点で 4 隅 [bl, br, tr, tl]
+// 矩形（4 隅 [bl, br, tr, tl]、数学座標）をガイド化
 CG.layer.addRectGuide = function (lyr, bl, br, tr, tl) {
-    return CG.layer.addPolylineGuide(lyr, [
-        [bl[0], bl[1]], [br[0], br[1]], [tr[0], tr[1]], [tl[0], tl[1]]
-    ], true);
+    return CG.layer.addPolylineGuide(lyr, [bl, br, tr, tl], true);
 };
-// ===== end core/guidelayer.jsx =====
+// ===== end ppro/layer.jsx =====
 // ===== begin draw/guides.jsx =====
 // Composition Guides for Illustrator
 // draw/guides.jsx — 構図ガイド描画（Blender guides.py 移植）
@@ -921,55 +797,3 @@ CG.generate = function (doc, state) {
     return (state.artboard_index === -2) ? -2 : frames[0].index;
 };
 // ===== end generate.jsx =====
-// ===== begin host.jsx =====
-// Composition Guides for Illustrator
-// host.jsx — CEP パネルから呼ばれるホスト API
-//
-// CEP パネル(JS)は __adobe_cep__.evalScript で CGHost.* を呼ぶ。
-// ExtendScript には JSON が無いため、状態は eval('('+str+')') でパースする
-// （ローカルの信頼できるデータのみを扱う）。
-
-var CGHost = {};
-
-CGHost._doc = function () {
-    return (app.documents.length > 0) ? app.activeDocument : null;
-};
-
-// state(JSON文字列) を受け取りガイド生成。戻り値は "OK:<index>" / "NO_DOC" / "ERR:<msg>"
-CGHost.generate = function (jsonStr) {
-    var doc = CGHost._doc();
-    if (!doc) { return "NO_DOC"; }
-    var state;
-    try {
-        state = eval("(" + jsonStr + ")");
-    } catch (e) {
-        return "ERR:state parse: " + e;
-    }
-    try {
-        var idx = CG.generate(doc, state);
-        return "OK:" + idx;
-    } catch (e2) {
-        return "ERR:" + e2;
-    }
-};
-
-// 専用レイヤーを全消去。"OK" / "NO_DOC"
-CGHost.clear = function () {
-    var doc = CGHost._doc();
-    if (!doc) { return "NO_DOC"; }
-    CG.layer.clear(doc);
-    app.redraw();
-    return "OK";
-};
-
-// アートボード名一覧（改行区切り）。ドキュメントが無ければ空文字
-CGHost.artboards = function () {
-    var doc = CGHost._doc();
-    if (!doc) { return ""; }
-    var names = [];
-    for (var i = 0; i < doc.artboards.length; i++) {
-        names.push(doc.artboards[i].name);
-    }
-    return names.join("\n");
-};
-// ===== end host.jsx =====

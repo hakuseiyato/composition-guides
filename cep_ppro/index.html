@@ -8,14 +8,8 @@
 </head>
 <body>
   <div id="app">
-    <!-- 基準アートボード -->
-    <section class="panel">
-      <h2>基準アートボード</h2>
-      <div class="row">
-        <label for="artboard">対象</label>
-        <select id="artboard"></select>
-      </div>
-    </section>
+    <!-- 基準シーケンス -->
+    <section class="panel"><h2>基準シーケンス</h2><div class="row" id="seqInfo">アクティブシーケンス</div></section>
 
     <!-- 動的にセクションを差し込む -->
     <div id="sections"></div>
@@ -23,11 +17,16 @@
     <!-- 操作ボタン（固定フッタ） -->
     <footer id="actions">
       <button id="btnClear" class="secondary">全消去</button>
+      <button id="btnToggle" class="secondary">表示切替</button>
       <button id="btnGenerate" class="primary">生成 / 更新</button>
     </footer>
     <div id="status" class="status"></div>
+
+    <!-- ガイド PNG の描画先（非表示） -->
+    <canvas id="cgCanvas" style="display:none"></canvas>
   </div>
 
+  <script src="js/engine.js"></script>
   <script src="js/ui.js"></script>
   <script src="js/main.js"></script>
 </body>

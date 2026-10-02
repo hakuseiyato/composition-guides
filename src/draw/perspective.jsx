@@ -16,7 +16,9 @@ CG.perspective._raysFromVP = function (lyr, frame, vp, n) {
     var ab = CG.frame.aabb(frame);
     var center = CG.frame.uvToPoint(frame, 0.5, 0.5);
     var dxRef = center[0] - vp[0], dyRef = center[1] - vp[1];
-    if (Math.abs(dxRef) < 1e-6 && Math.abs(dyRef) < 1e-6) { return; }
+    // VP が frame 中心ちょうどのときは基準方向が定まらないが、atan2(0,0) === 0 で
+    // +x 方向を基準に扇を張れば足りる。以前はここで return しており、既定の 1P
+    // （VP横=0.5, 水平線高さ=0.5）でパース線が 1 本も出なかった
     var base = Math.atan2(dyRef, dxRef);
 
     // 4 隅への角度を base まわりに正規化して範囲を決める
@@ -27,7 +29,12 @@ CG.perspective._raysFromVP = function (lyr, frame, vp, n) {
     var aMin = 1e9, aMax = -1e9;
     for (var c = 0; c < corners.length; c++) {
         var a = Math.atan2(corners[c][1] - vp[1], corners[c][0] - vp[0]);
-        var diff = ((a - base + Math.PI) % (2 * Math.PI)) - Math.PI;
+        // base まわりの符号付き差 (-π, π]。JS の % は被除数が負だと負を返すため、
+        // 一度正方向へ回してから -π する（base が ±π 近傍だと a-base+π が負に落ちて
+        // 角度範囲が一周ぶん壊れる。既定の 2P 右 VP がまさにこれに当たっていた）
+        var diff = (a - base + Math.PI) % (2 * Math.PI);
+        if (diff < 0) { diff += 2 * Math.PI; }
+        diff -= Math.PI;
         if (diff < aMin) { aMin = diff; }
         if (diff > aMax) { aMax = diff; }
     }
@@ -60,8 +67,53 @@ CG.perspective._vpMarker = function (lyr, frame, vp) {
     CG.layer.addLineGuide(lyr, [vp[0], vp[1] - size], [vp[0], vp[1] + size]);
 };
 
+CG.perspective._live = function (ctx) {
+    var f = ctx.frame, l = ctx.layer, s = ctx.state;
+    var hv = s.perspective_horizon_v;
+    var n = Math.max(2, Math.round(s.perspective_lines));
+    var keep = [];
+
+    if (s.perspective_mode === "1P") {
+        var nameP1 = CG.layer.ensureVP(f, "P1", CG.frame.uvToPoint(f, s.perspective_vp1_u, hv));
+        keep.push(nameP1);
+        CG.layer.addRaysLive(l, nameP1, n);
+        if (s.perspective_show_vp_marker) { CG.layer.addVPMarkerLive(l, nameP1); }
+        if (s.perspective_show_horizon) { CG.layer.addHorizonLive(l, nameP1, null); }
+    } else {
+        var nameL = CG.layer.ensureVP(f, "L", CG.frame.uvToPoint(f, 0.5 - s.perspective_vp_spread, hv));
+        var nameR = CG.layer.ensureVP(f, "R", CG.frame.uvToPoint(f, 0.5 + s.perspective_vp_spread, hv));
+        keep.push(nameL); keep.push(nameR);
+        CG.layer.addRaysLive(l, nameL, n);
+        CG.layer.addRaysLive(l, nameR, n);
+        if (s.perspective_show_vp_marker) {
+            CG.layer.addVPMarkerLive(l, nameL);
+            CG.layer.addVPMarkerLive(l, nameR);
+        }
+
+        if (s.perspective_mode === "3P") {
+            var nameV3 = CG.layer.ensureVP(f, "V3", CG.frame.uvToPoint(f, 0.5, hv + s.perspective_vp3_dist));
+            keep.push(nameV3);
+            CG.layer.addRaysLive(l, nameV3, n);
+            if (s.perspective_show_vp_marker) { CG.layer.addVPMarkerLive(l, nameV3); }
+        }
+
+        if (s.perspective_show_horizon) { CG.layer.addHorizonLive(l, nameL, nameR); }
+    }
+
+    // ponytail: keep はこのフレームの VP のみ。複数フレーム × live VP が同時に
+    // 成立するバックエンドができたら、後のフレームが前のフレームの VP ヌルを消す。
+    // 現状 live VP は AE 専用で AE は常に 1 フレームのため到達しない。
+    CG.layer.pruneVP(f, keep);
+};
+
 CG.guides.perspective = function (ctx) {
     var f = ctx.frame, l = ctx.layer, s = ctx.state;
+    var live = !!(s.perspective_live_vp && CG.layer.perspectiveLive);
+    if (live) {
+        CG.perspective._live(ctx);
+        return;
+    }
+    if (CG.layer.pruneVP) { CG.layer.pruneVP(f, []); }
     var hv = s.perspective_horizon_v;
     var n = Math.max(2, Math.round(s.perspective_lines));
     var P = CG.perspective;

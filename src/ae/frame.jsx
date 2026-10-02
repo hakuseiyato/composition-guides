@@ -27,6 +27,12 @@ CG.frame.fromBase = function (comp, state) {
     };
 };
 
+// 描画対象フレームの配列を返す（generate.jsx から呼ばれる）。
+// AE はコンポ 1 個が基準でアートボードの概念が無いため、常に単一要素配列を返す。
+CG.frame.list = function (comp, state) {
+    return [CG.frame.fromBase(comp, state)];
+};
+
 // ホスト依存処理の中立化。AE はコンポが自動更新されるため no-op。
 CG.host = CG.host || {};
 CG.host.redraw = function () { /* AE: no explicit redraw needed */ };
